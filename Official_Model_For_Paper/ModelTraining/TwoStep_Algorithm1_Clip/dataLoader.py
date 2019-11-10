@@ -1,6 +1,7 @@
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 import torch
+from VOCPart import VOCPart
 
 class DataLoader():
     def __init__(self,dataset,batch_size):
@@ -61,6 +62,10 @@ class DataLoader():
                                        transform=mnist_transforms['val'],
                                        train=False,
                                        download=True)
+        if self.dataset == 'VOCpart':
+            data_train = VOCPart('/home/haoyu/data/VOCPart', train=True)
+            data_test  = VOCPart('/home/haoyu/data/VOCPart', train=False)
+
         image_datasets = {'train': data_train, 'val': data_test}
         # change list to Tensor as the input of the models
         dataloaders = {}

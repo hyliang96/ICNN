@@ -1,7 +1,8 @@
 import os
 import torch
 from torchvision.utils import make_grid
-from tensorboardX import SummaryWriter
+from torch.utils.tensorboard.writer import SummaryWriter
+# from tensorboardX import SummaryWriter
 
 class TensorboardSummary(object):
     def __init__(self, directory):

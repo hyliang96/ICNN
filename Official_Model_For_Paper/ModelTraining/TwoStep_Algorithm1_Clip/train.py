@@ -58,7 +58,6 @@ def train_model(model,criterion,optimizer,scheduler,num_epochs=25):
         #each epoch has a training and validation phase
         for phase in ['train','val']:
             if phase == 'train':
-                scheduler.step()
                 model.train(True)
             else:
                 model.train(False)
@@ -108,6 +107,9 @@ def train_model(model,criterion,optimizer,scheduler,num_epochs=25):
                 running_corrects += torch.sum(preds == y)
                 # top5_corrects += torch.sum(top5_preds == y.resize_(batch_size,1))
 
+            if phase == 'train':
+                scheduler.step()
+
             epoch_loss = running_loss /dataset_sizes[phase]
             epoch_acc = float(running_corrects) /dataset_sizes[phase]
             # top5_acc = top5_corrects /dataset_sizes[phase]
@@ -155,6 +157,8 @@ if __name__ == '__main__':
         num_classes = 10
     if args.dataset == 'cifar-100':
         num_classes = 100
+    if args.dataset == 'VOCpart':
+        num_classes = 6
 
     model = resnet_cifar(depth=args.depth, num_classes=num_classes)
     optimizer = torch.optim.SGD(model.parameters(), lr=0.1,
