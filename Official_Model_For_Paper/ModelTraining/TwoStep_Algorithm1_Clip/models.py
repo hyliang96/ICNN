@@ -103,6 +103,7 @@ class LearnableMaskLayer(nn.Module):
         return c_mask
 
     def _icnn_mask(self, x, labels, epoch):
+        print('self.training=', self.training)
         if (epoch % 3 == 1 and self.training):
             index_mask = torch.zeros(x.shape, device=x.device)
             for idx, la in enumerate(labels):
@@ -167,8 +168,10 @@ class LearnableMaskLayer(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, depth, num_classes=1000):
+    def __init__(self, depth, num_classes=1000, ifmask=True):
         super(ResNet, self).__init__()
+        self.ifmask = ifmask
+        print('self.ifmask=',self.ifmask)
         # Model type specifies number of layers for CIFAR-10 model
         assert (depth - 2) % 6 == 0, 'depth should be 6n+2'
         n = (depth - 2) // 6
@@ -187,7 +190,8 @@ class ResNet(nn.Module):
         self.avgpool = nn.AdaptiveAvgPool2d(1) #  nn.AvgPool2d(32)
         self.fc = nn.Linear(64 * block.expansion, num_classes)
         # self.mask = torch.nn.Parameter(torch.full((64,num_classes),0.5))
-        self.lmask = LearnableMaskLayer(feature_dim=64, num_classes=num_classes)
+        if self.ifmask:
+            self.lmask = LearnableMaskLayer(feature_dim=64, num_classes=num_classes)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -223,7 +227,8 @@ class ResNet(nn.Module):
         x = self.layer2(x)  # 16x16
         x = self.layer3(x)  # 8x8
 
-        x, reg = self.lmask(x, labels, epoch)
+        if self.ifmask:
+            x, reg = self.lmask(x, labels, epoch)
 
         x = self.avgpool(x)
         x = x.view(x.size(0), -1)
@@ -231,7 +236,10 @@ class ResNet(nn.Module):
 
         # print('l1_regularization, ', l1_regularization, 'l2_regularization', l2_regularization)
 
-        return x, reg
+        if self.ifmask:
+            return x, reg
+        else:
+            return x
 
 def resnet(**kwargs):
     """

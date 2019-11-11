@@ -1,4 +1,5 @@
 import os
+import errno
 import time
 import torch
 import torch.nn as nn
@@ -8,9 +9,10 @@ from models import ResNet as resnet_cifar
 import pandas as pd
 import argparse
 import csv
-from torch.optim.lr_scheduler import MultiStepLR
+from torch.optim.lr_scheduler import MultiStepLR,ReduceLROnPlateau
 from dataLoader import DataLoader
 from summaries import TensorboardSummary
+import torchvision
 
 # parameters setting
 parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Training')
@@ -24,15 +26,28 @@ parser.add_argument('--batch_size', default=64,type=int, help='batch size')
 parser.add_argument('--epoch', default=200,type=int, help='epoch')
 parser.add_argument('--exp_dir',default='./',help='dir for tensorboard')
 parser.add_argument('--res', default='./result.txt', help="file to write best result")
-
+parser.add_argument('--ifmask', default='True', type=str, help="whether use learnable mask (i.e. gate matrix)")
+parser.add_argument('--optim', default='adam', type=str, help="optimizer: adam | agd")
+parser.add_argument('--lr', default=0.1, type=float, help="learning rate")
 
 args = parser.parse_args()
+args.ifmask=True if args.ifmask=='True' else False
 
 if os.path.exists(args.exp_dir):
     print ('Already exist and will continue training')
     # exit()
 summary = TensorboardSummary(args.exp_dir)
 tb_writer = summary.create_summary()
+
+def symlink_force(target, link_name):
+    try:
+        os.symlink(target, link_name)
+    except OSError as e:
+        if e.errno == errno.EEXIST:
+            os.remove(link_name)
+            os.symlink(target, link_name)
+        else:
+            raise e
 
 def train_model(model,criterion,optimizer,scheduler,num_epochs=25):
     since = time.time()
@@ -41,14 +56,15 @@ def train_model(model,criterion,optimizer,scheduler,num_epochs=25):
     best_acc = 0.0
     best_train_acc = 0.0
     # Load unfinished model
-    unfinished_model_path = os.path.join(args.exp_dir , 'unfinished_model.pt')
+    unfinished_model_path = os.path.join(args.exp_dir , 'unfinished_model_lastest.pt')
     if(os.path.exists(unfinished_model_path)):
         checkpoint = torch.load(unfinished_model_path)
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        epoch = checkpoint['epoch']
+        epoch = checkpoint['epoch']+1
         loss = checkpoint['loss']
-    else: epoch = 0
+    else:
+        epoch = 0
 
     while epoch < num_epochs:
         epoch_time = time.time()
@@ -81,9 +97,15 @@ def train_model(model,criterion,optimizer,scheduler,num_epochs=25):
                 optimizer.zero_grad()
 
                 #forward
-                outputs, regulization_loss = model(inputs, labels, epoch)
-                # print('outloss:',criterion(outputs, labels) * 0.7 , criterion(icnn_outputs, labels), regulization_loss)
-                loss = criterion(outputs, labels) + regulization_loss
+                if args.ifmask:
+                    outputs, regulization_loss = model(inputs, labels, epoch)
+                    # print('outloss:',criterion(outputs, labels) * 0.7 , criterion(icnn_outputs, labels), regulization_loss)
+                    loss = criterion(outputs, labels) + regulization_loss
+                else:
+                    # outputs = model(inputs)
+                    outputs = model(inputs, labels, epoch)
+                    # print('outloss:',criterion(outputs, labels) * 0.7 , criterion(icnn_outputs, labels), regulization_loss)
+                    loss = criterion(outputs, labels)
                 _, preds = torch.max(outputs.data, 1)
 
 
@@ -98,7 +120,8 @@ def train_model(model,criterion,optimizer,scheduler,num_epochs=25):
                     # import ipdb;
                     # ipdb.set_trace()
                     # call clip function in model to normalize the lmask
-                    model.module.lmask.clip_lmask()
+                    if args.ifmask:
+                        model.module.lmask.clip_lmask()
 
                 y = labels.data
                 batch_size = labels.data.shape[0]
@@ -108,7 +131,7 @@ def train_model(model,criterion,optimizer,scheduler,num_epochs=25):
                 # top5_corrects += torch.sum(top5_preds == y.resize_(batch_size,1))
 
             if phase == 'train':
-                scheduler.step()
+                scheduler.step(loss)
 
             epoch_loss = running_loss /dataset_sizes[phase]
             epoch_acc = float(running_corrects) /dataset_sizes[phase]
@@ -130,13 +153,17 @@ def train_model(model,criterion,optimizer,scheduler,num_epochs=25):
             cost_time = time.time() - epoch_time
             print('Epoch time cost {:.0f}m {:.0f}s'.format(cost_time // 60, cost_time % 60))
         # Save model periotically
-        if(epoch % 1 == 0):
+
+        if (epoch % 1 == 0):
+            checkpoint_path = os.path.join(args.exp_dir, 'unfinished_model_%d.pt' % epoch)
+            lastest_checkpoint_path = os.path.join(args.exp_dir , 'unfinished_model_lastest.pt')
             torch.save({
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'loss': loss,
-            }, os.path.join(args.exp_dir , 'unfinished_model_%d.pt' % epoch))
+            }, checkpoint_path)
+            symlink_force(checkpoint_path, lastest_checkpoint_path)
         epoch += 1
 
     cost_time = time.time() - since
@@ -158,15 +185,24 @@ if __name__ == '__main__':
     if args.dataset == 'cifar-100':
         num_classes = 100
     if args.dataset == 'VOCpart':
-        num_classes = 6
+        num_classes = len(dataloaders['train'].dataset.classes)
 
-    model = resnet_cifar(depth=args.depth, num_classes=num_classes)
-    optimizer = torch.optim.SGD(model.parameters(), lr=0.1,
+    # model = torchvision.models.resnet152(pretrained=True)
+
+    model = resnet_cifar(depth=args.depth, num_classes=num_classes, ifmask=args.ifmask)
+    if args.optim == 'sgd':
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.1,
                                 momentum=0.9, nesterov=True, weight_decay=1e-4)
+    elif args.optim == 'adam':
+        optimizer=torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.999),
+            eps=1e-08, weight_decay=0, amsgrad=False)
+    else:
+        raise
 
     # define loss and optimizer
     criterion = nn.CrossEntropyLoss()
-    scheduler = MultiStepLR(optimizer, milestones=[args.epoch*0.4, args.epoch*0.6, args.epoch*0.8], gamma=0.1)
+    # scheduler = MultiStepLR(optimizer, milestones=[args.epoch*0.4, args.epoch*0.6, args.epoch*0.8], gamma=0.1)
+    scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.8, patience=10, cooldown=10, verbose=True)
 
     use_gpu = torch.cuda.is_available()
     if use_gpu:
@@ -174,7 +210,7 @@ if __name__ == '__main__':
             args.gpu_ids = [int(s) for s in args.gpu_ids.split(',')]
         except ValueError:
             raise ValueError('Argument --gpu_ids must be a comma-separated list of integers only')
-        model = torch.nn.DataParallel(model, device_ids=args.gpu_ids)
+        model = torch.nn.DataParallel(model) # device_ids=args.gpu_ids
         # patch_replication_callback(model)
         model = model.cuda()
     model,cost_time,best_acc,best_train_acc = train_model(model=model,

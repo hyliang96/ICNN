@@ -63,18 +63,19 @@ class DataLoader():
                                        train=False,
                                        download=True)
         if self.dataset == 'VOCpart':
-            data_train = VOCPart('/home/haoyu/data/VOCPart', train=True)
-            data_test  = VOCPart('/home/haoyu/data/VOCPart', train=False)
+            data_train = VOCPart('/home/haoyu/data/VOCPart', train=True ,requires=['img'], size=64)
+            data_test = VOCPart('/home/haoyu/data/VOCPart', train=False, requires=['img'], size=64)
+            # requires=['img','obj_mask', 'part_mask']
 
         image_datasets = {'train': data_train, 'val': data_test}
         # change list to Tensor as the input of the models
         dataloaders = {}
         dataloaders['train'] = torch.utils.data.DataLoader(image_datasets['train'],
-                                                           batch_size=self.batch_size,
-                                                           shuffle=True)
+                                                           batch_size=self.batch_size, pin_memory=True,
+                                                           shuffle=True, num_workers=16)
         dataloaders['val'] = torch.utils.data.DataLoader(image_datasets['val'],
-                                                         batch_size=self.batch_size,
-                                                         shuffle=False)
+                                                         batch_size=self.batch_size, pin_memory=True,
+                                                         shuffle=False, num_workers=16)
 
         dataset_sizes = {x: len(image_datasets[x]) for x in ['train', 'val']}
 

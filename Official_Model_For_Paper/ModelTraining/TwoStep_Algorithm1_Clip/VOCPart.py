@@ -10,50 +10,51 @@ normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                  std=[0.229, 0.224, 0.225])
 
 class VOCPart(data.Dataset):
+    def __init__(self, root_dir, train=True, transform=None, requires=['img'], size=64):
+        assert size in [64, 128]
+        assert set(requires) <= set(['img','obj_mask','part_mask'])
 
-    train_transform = transforms.Compose([
-        transforms.RandomCrop(128, padding=16), # 怎么写
-        transforms.RandomHorizontalFlip(),
-        # transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        normalize
-    ])
+        self.train_transform = transforms.Compose([
+            transforms.RandomCrop(size, padding=int(size/8)), # 怎么写
+            transforms.RandomHorizontalFlip(),
+            # transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            normalize
+        ])
 
-    val_transform = transforms.Compose([
-        # transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        normalize
-    ])
+        self.val_transform = transforms.Compose([
+            # transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            normalize
+        ])
 
-    _ToTensor = transforms.ToTensor()
+        self._ToTensor = transforms.ToTensor()
 
-    def __init__(self, root_dir, train=True, transform=None, requires=['img']):
+
         self.root_dir = root_dir
         self.train = train
         self.transform = transform or ( self.train_transform if train else self.val_transform)
         self.requires  = requires
-        self.class_name_list = ['bird', 'cat',  'dog', 'cow','horse', 'sheep']
+        self.classes = ['bird', 'cat',  'dog', 'cow','horse', 'sheep']
 
-        assert set(self.requires) <= set(['img','obj_mask','part_mask'])
 
-        self.processed_dir = os.path.join(self.root_dir, 'processed' )
-        with open(os.path.join(self.processed_dir, 'metadata', 'train.txt' if train else 'val.txt' ),'r') as f:
-            self.img_name_list = f.read().split('\n')
+        self.metadata_file = os.path.join(self.root_dir, 'processed', 'metadata', 'train.txt' if train else 'val.txt' )
+        with open(self.metadata_file,'r') as f:
+            self.img_name_list = list(filter(lambda x:x!='', f.read().split('\n')))
 
-        self.obj_img_dir = os.path.join(self.processed_dir, 'obj_img')
         self.imgs, self.labels, self.obj_masks, self.part_masks = [], [], [], []
+        self.processed_dir = os.path.join(self.root_dir, 'processed', '%dx%d' % (size, size) )
+        self.obj_img_dir = os.path.join(self.processed_dir, 'obj_img')
 
         for file_name in os.listdir(self.obj_img_dir):
             class_name, obj_id, tmp = file_name.split('-')
-
             img_name, _ = tmp.split('.')
             if img_name not in self.img_name_list:
                 continue
-
             file_name_body = file_name.replace('.jpg', '')
 
         # if 'img' in self.requires:
-            label = self.class_name_list.index(class_name) # id from 0 to 5
+            label = self.classes.index(class_name) # id from 0 to 5
             img_path = os.path.join(self.obj_img_dir, file_name)
             self.imgs.append(img_path)
             self.labels.append(label)
@@ -68,13 +69,13 @@ class VOCPart(data.Dataset):
             part_mask_dict = {part_name:part_mask_path for part_name,part_mask_path in zip(part_names, part_mask_paths)}
             self.part_masks.append(part_mask_dict)
 
-            print(file_name,len(self.imgs), len(self.labels), len(self.obj_masks), len(self.part_masks), end='\r')
+        print('train set' if train else 'val set')
+        print('image size %dx%d' % (size, size) )
+        print('image num = %d' % self.__len__())
+            # print(file_name,len(self.imgs), len(self.labels), len(self.obj_masks), len(self.part_masks), end='\r')
 
     def __len__(self):
         return len(self.imgs)
-
-    def classes(self):
-        return self.class_name_list
 
     def img_loader(self, path):
         with open(path, 'rb') as f:
