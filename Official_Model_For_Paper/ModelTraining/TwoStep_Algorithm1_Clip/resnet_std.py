@@ -1,6 +1,10 @@
 import torch.nn as nn
 import math
 import torch.utils.model_zoo as model_zoo
+import math
+import torch
+from torch.distributions import Bernoulli
+import torch.nn.functional as F
 
 __all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
            'resnet152', 'resnext50_32x4d', 'resnext101_32x8d',
@@ -99,14 +103,16 @@ class LearnableMaskLayer(nn.Module):
     def __init__(self, feature_dim, num_classes):
         super(LearnableMaskLayer, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.mask = torch.nn.Parameter(torch.full((64,num_classes),0.5))
+        self.mask = torch.nn.Parameter(torch.full((feature_dim,num_classes),0.5))
 
     def get_channel_mask(self):
         c_mask = self.mask
         return c_mask
 
+    def get_density(self):
+        return torch.norm(self.mask, p=1)/torch.numel(self.mask)
+
     def _icnn_mask(self, x, labels, epoch):
-        print('self.training=', self.training)
         if (epoch % 3 == 1 and self.training):
             index_mask = torch.zeros(x.shape, device=x.device)
             for idx, la in enumerate(labels):
@@ -118,40 +124,43 @@ class LearnableMaskLayer(nn.Module):
     def loss_function(self):
         # L1 regulization
         # lMask dim: (64,num_classes)
-        lMask = self.get_channel_mask()
 
         # L1 reg
-        lambda1 = 1e-3
-        l1_reg= lambda1 * torch.norm(lMask, 1)
+
+        l1_reg = torch.norm(self.mask, p=1)
+        l1_reg = torch.relu(l1_reg - torch.numel(self.mask) * 0.2)
+        return l1_reg
         # import ipdb; ipdb.set_trace()
 
-        # L_max reg
-        # after torch.max(), class_max[0]->elements; class_max[1] -> indices
-        class_max = torch.max(lMask, dim=1)
-        # Only one class is expected for one channel
-        l_max_reg = torch.norm(class_max[0], 1) * 1e-3
+        # # L_max reg
+        # # after torch.max(), class_max[0]->elements; class_max[1] -> indices
+        # class_max = torch.max(self.mask, dim=1)
+        # # Only one class is expected for one channel
+        # l_max_reg = torch.norm(class_max[0], 1) * 1e-3
 
-        # L_21 reg
-        l_21_reg = torch.norm(torch.norm(lMask, 1, dim=1), 2) * 1e-3
+        # # L_21 reg
+        # l_21_reg = torch.norm(torch.norm(self.mask, 1, dim=1), 2) * 1e-3
 
         # Related the max of 30% of the classes:
 
         # import ipdb; ipdb.set_trace()
-        # idx = torch.topk(-lMask, k=int(lMask.shape[1]*0.7), dim=1)[1]
-        # test_arr = torch.arange(0, 64*10, device=lMask.device).resize_((64, 10))
+        # idx = torch.topk(-self.mask, k=int(self.mask.shape[1]*0.7), dim=1)[1]
+        # test_arr = torch.arange(0, 64*10, device=self.mask.device).resize_((64, 10))
         # idx = idx.view(idx.shape[0],idx.shape[1],1)
         # test_arr[idx.view(-1,1)]
         # test_arr.scatter_(dim=0, index=idx, src=0)
         # import ipdb;
         # ipdb.set_trace()
-        activate_max_num_reg = torch.norm(lMask, 1, dim=1) - (lMask.shape[1]*0.3)
-        activate_max_num_reg = torch.relu(activate_max_num_reg)
-        activate_max_num_reg = torch.sum(activate_max_num_reg)* lambda1
+        # activate_max_num_reg = torch.norm(self.mask, 1, dim=1) - (self.mask.shape[1]*0.3)
+        # activate_max_num_reg = torch.relu(activate_max_num_reg)
+        # activate_max_num_reg = torch.sum(activate_max_num_reg)
+        # return activate_max_num_reg
 
 
         # print(l_max_reg , l1_reg , l_21_reg)
-        return l1_reg + activate_max_num_reg
-        return l_max_reg + l1_reg + l_21_reg
+        # return l1_reg + activate_max_num_reg
+
+        # return l_max_reg + l1_reg + l_21_reg
 
     def clip_lmask(self):
 
@@ -171,7 +180,7 @@ class LearnableMaskLayer(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, fmask=True):
+    def __init__(self, block, layers, num_classes=1000, ifmask=True):
         self.inplanes = 64
         super(ResNet, self).__init__()
         self.ifmask = ifmask
@@ -184,11 +193,12 @@ class ResNet(nn.Module):
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
-        self.avgpool = nn.AvgPool2d(2, stride=1)
+        self.avgpool = nn.AdaptiveAvgPool2d(1) #  nn.AvgPool2d(32)
+        # self.avgpool = nn.AvgPool2d(2, stride=1)
 
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         if self.ifmask:
-            self.lmask = LearnableMaskLayer(feature_dim=512, num_classes=num_classes)
+            self.lmask = LearnableMaskLayer(feature_dim=512* block.expansion, num_classes=num_classes)
 
 
         for m in self.modules():
@@ -216,7 +226,7 @@ class ResNet(nn.Module):
 
         return nn.Sequential(*layers)
 
-    def forward(self, x):
+    def forward(self, x, labels, epoch):
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
@@ -227,75 +237,120 @@ class ResNet(nn.Module):
         x = self.layer3(x)
         x = self.layer4(x)
 
+        if self.ifmask:
+            x, reg = self.lmask(x, labels, epoch)
+
         x = self.avgpool(x)
         x = x.view(x.size(0), -1)
         x = self.fc(x)
 
-        return x
+        if self.ifmask:
+            return x, reg
+        else:
+            return x
 
 
-def resnet18(pretrained=False, **kwargs):
+def resnet18(pretrained=False, ifmask=True, num_classes=1000, **kwargs):
     """Constructs a ResNet-18 model.
 
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
-    model = ResNet(BasicBlock, [2, 2, 2, 2], **kwargs)
+    block = BasicBlock
+    model = ResNet(block, [2, 2, 2, 2], num_classes=1000, ifmask=False, **kwargs)
     if pretrained:
         model.load_state_dict(model_zoo.load_url(model_urls['resnet18']))
+    model.fc = nn.Linear(512 * block.expansion, num_classes)
+    if ifmask:
+        model.ifmask = True
+        model.lmask = LearnableMaskLayer(feature_dim=512* block.expansion, num_classes=num_classes)
     return model
 
 
 
-def resnet34(pretrained=False, **kwargs):
+def resnet34(pretrained=False, ifmask=True, num_classes=1000, **kwargs):
     """Constructs a ResNet-34 model.
 
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
-    model = ResNet(BasicBlock, [3, 4, 6, 3], **kwargs)
+    block = BasicBlock
+    model = ResNet(block, [3, 4, 6, 3], num_classes=1000, ifmask=False, **kwargs)
     if pretrained:
         model.load_state_dict(model_zoo.load_url(model_urls['resnet34']))
+    model.fc = nn.Linear(512 * block.expansion, num_classes)
+    if ifmask:
+        model.ifmask = True
+        model.lmask = LearnableMaskLayer(feature_dim=512* block.expansion, num_classes=num_classes)
     return model
 
 
 
-def resnet50(pretrained=False, **kwargs):
+def resnet50(pretrained=False, ifmask=True, num_classes=1000, **kwargs):
     """Constructs a ResNet-50 model.
 
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
-    model = ResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
+    block = Bottleneck
+    model = ResNet(block, [3, 4, 6, 3], num_classes=1000, ifmask=False, **kwargs)
     if pretrained:
         model.load_state_dict(model_zoo.load_url(model_urls['resnet50']))
+    model.fc = nn.Linear(512 * block.expansion, num_classes)
+    if ifmask:
+        model.ifmask = True
+        model.lmask = LearnableMaskLayer(feature_dim=512* block.expansion, num_classes=num_classes)
     return model
 
 
 
-def resnet101(pretrained=False, **kwargs):
+def resnet101(pretrained=False, ifmask=True, num_classes=1000, **kwargs):
     """Constructs a ResNet-101 model.
 
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
-    model = ResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
+    block = Bottleneck
+    model = ResNet(block, [3, 4, 23, 3], num_classes=1000, ifmask=False, **kwargs)
     if pretrained:
         model.load_state_dict(model_zoo.load_url(model_urls['resnet101']))
+    model.fc = nn.Linear(512 * block.expansion, num_classes)
+    if ifmask:
+        model.ifmask = True
+        model.lmask = LearnableMaskLayer(feature_dim=512* block.expansion, num_classes=num_classes)
     return model
 
 
 
-def resnet152(pretrained=False, **kwargs):
+def resnet152(pretrained=False, ifmask=True, num_classes=1000, **kwargs):
     """Constructs a ResNet-152 model.
 
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
-    model = ResNet(Bottleneck, [3, 8, 36, 3], **kwargs)
+    block = Bottleneck
+    model = ResNet(block, [3, 8, 36, 3],  num_classes=1000, ifmask=False, **kwargs)
     if pretrained:
         model.load_state_dict(model_zoo.load_url(model_urls['resnet152']))
+    model.fc = nn.Linear(512 * block.expansion, num_classes)
+    if ifmask:
+        model.ifmask = True
+        model.lmask = LearnableMaskLayer(feature_dim=512* block.expansion, num_classes=num_classes)
     return model
+
+def resent(depth, **kwargs):
+    if depth == 18:
+        return resnet18(**kwargs)
+    elif depth == 34:
+        return resnet34(**kwargs)
+    elif depth == 50:
+        return resnet50(**kwargs)
+    elif depth == 101:
+        return resnet101(**kwargs)
+    elif depth == 152:
+        return resnet152(**kwargs)
+    else:
+        raise
 
 
 # def resnet34(pretrained=False, modelpath='./models',**kwargs):

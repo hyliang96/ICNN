@@ -8,7 +8,7 @@ class DataLoader():
         self.dataset = dataset
         self.batch_size = batch_size
 
-    def load_data(self):
+    def load_data(self, img_size=32):
         data_dir = '/home/zengyuyuan/data/CIFAR10'
         data_transforms = {
             'train': transforms.Compose([
@@ -63,8 +63,8 @@ class DataLoader():
                                        train=False,
                                        download=True)
         if self.dataset == 'VOCpart':
-            data_train = VOCPart('/home/haoyu/data/VOCPart', train=True ,requires=['img'], size=64)
-            data_test = VOCPart('/home/haoyu/data/VOCPart', train=False, requires=['img'], size=64)
+            data_train = VOCPart('/home/haoyu/data/VOCPart', train=True ,requires=['img'], size=img_size)
+            data_test = VOCPart('/home/haoyu/data/VOCPart', train=False, requires=['img'], size=img_size)
             # requires=['img','obj_mask', 'part_mask']
 
         image_datasets = {'train': data_train, 'val': data_test}

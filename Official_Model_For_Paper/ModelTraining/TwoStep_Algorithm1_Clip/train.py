@@ -5,7 +5,9 @@ import torch
 import torch.nn as nn
 from torch.autograd import Variable
 
-from models import ResNet as resnet_cifar
+from resnet_32x32 import resnet as resnet_32x32
+from resnet_64x64 import resnet as resnet_64x64
+from resnet_std import resent as resnet_std
 import pandas as pd
 import argparse
 import csv
@@ -29,6 +31,8 @@ parser.add_argument('--res', default='./result.txt', help="file to write best re
 parser.add_argument('--ifmask', default='True', type=str, help="whether use learnable mask (i.e. gate matrix)")
 parser.add_argument('--optim', default='adam', type=str, help="optimizer: adam | agd")
 parser.add_argument('--lr', default=0.1, type=float, help="learning rate")
+parser.add_argument('--img_size', default=32, type=int, help="image size, input 32|64|128")
+parser.add_argument('--lambda_reg', default=1e-3, type=float, help='regularization coefficient')
 
 args = parser.parse_args()
 args.ifmask=True if args.ifmask=='True' else False
@@ -100,12 +104,13 @@ def train_model(model,criterion,optimizer,scheduler,num_epochs=25):
                 if args.ifmask:
                     outputs, regulization_loss = model(inputs, labels, epoch)
                     # print('outloss:',criterion(outputs, labels) * 0.7 , criterion(icnn_outputs, labels), regulization_loss)
-                    loss = criterion(outputs, labels) + regulization_loss
+                    loss = criterion(outputs, labels) + regulization_loss * args.lambda_reg
                 else:
                     # outputs = model(inputs)
                     outputs = model(inputs, labels, epoch)
                     # print('outloss:',criterion(outputs, labels) * 0.7 , criterion(icnn_outputs, labels), regulization_loss)
                     loss = criterion(outputs, labels)
+                loss_0 = criterion(outputs, labels)
                 _, preds = torch.max(outputs.data, 1)
 
 
@@ -146,6 +151,8 @@ def train_model(model,criterion,optimizer,scheduler,num_epochs=25):
             if phase == 'val':
                 tb_writer.add_scalar('val/total_loss_epoch', epoch_loss, epoch)
                 tb_writer.add_scalar('val/acc_epoch', epoch_acc, epoch)
+                if args.ifmask:
+                    tb_writer.add_scalar('val/mask_density', model.module.lmask.get_density(), epoch)
 
             if phase == 'val' and epoch_acc > best_acc:
                 best_acc = epoch_acc
@@ -178,7 +185,7 @@ if __name__ == '__main__':
     print ('DataSets: '+args.dataset)
     print ('ResNet Depth: '+str(args.depth))
     loader = DataLoader(args.dataset,batch_size=args.batch_size)
-    dataloaders,dataset_sizes = loader.load_data()
+    dataloaders,dataset_sizes = loader.load_data(args.img_size)
     num_classes = 10
     if args.dataset == 'cifar-10':
         num_classes = 10
@@ -189,7 +196,12 @@ if __name__ == '__main__':
 
     # model = torchvision.models.resnet152(pretrained=True)
 
-    model = resnet_cifar(depth=args.depth, num_classes=num_classes, ifmask=args.ifmask)
+    # if args.img_size == 64:
+        # model = resnet_64x64(depth=args.depth, num_classes=num_classes, ifmask=args.ifmask)
+    # elif args.img_size == 32:
+        # model = resnet_32x32(depth=args.depth, num_classes=num_classes, ifmask=args.ifmask)
+    model = resnet_std(depth=args.depth, num_classes=num_classes, ifmask=args.ifmask, pretrained=True)
+
     if args.optim == 'sgd':
         optimizer = torch.optim.SGD(model.parameters(), lr=0.1,
                                 momentum=0.9, nesterov=True, weight_decay=1e-4)

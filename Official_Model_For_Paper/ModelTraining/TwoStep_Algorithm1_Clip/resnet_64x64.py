@@ -102,7 +102,6 @@ class LearnableMaskLayer(nn.Module):
         return c_mask
 
     def _icnn_mask(self, x, labels, epoch):
-        print('self.training=', self.training)
         if (epoch % 3 == 1 and self.training):
             index_mask = torch.zeros(x.shape, device=x.device)
             for idx, la in enumerate(labels):
@@ -167,26 +166,27 @@ class LearnableMaskLayer(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, depth, num_classes=1000, ifmask=True):
+    def __init__(self, block, layers, num_classes=1000, ifmask=True):
         super(ResNet, self).__init__()
         self.ifmask = ifmask
         print('self.ifmask=', self.ifmask)
         # Model type specifies number of layers for CIFAR-10 model
-        assert (depth - 2) % 6 == 0, 'depth should be 6n+2'
-        n = (depth - 2) // 6
+        # assert (depth - 2) % 6 == 0, 'depth should be 6n+2'
+        # n = (depth - 2) // 6
 
-        block = Bottleneck if depth >=44 else BasicBlock
+        # block = Bottleneck if depth >=44 else BasicBlock
 
         self.inplanes = 16
 
         self.conv1 = nn.Conv2d(3, 16, kernel_size=3, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(16)
         self.relu = nn.ReLU(inplace=True)
-        self.layer1 = self._make_layer(block, 16, n)
-        self.layer2 = self._make_layer(block, 32, n, stride=2)
-        self.layer3 = self._make_layer(block, 64, n, stride=2)
+        self.layer1 = self._make_layer(block, 16, layers[0])
+        self.layer2 = self._make_layer(block, 32, layers[1], stride=2)
+        self.layer3 = self._make_layer(block, 64, layers[2], stride=2)
+        self.layer4 = self._make_layer(block, 128, layers[3], stride=2)
         self.avgpool = nn.AdaptiveAvgPool2d(1) #  nn.AvgPool2d(32)
-        self.fc = nn.Linear(64 * block.expansion, num_classes)
+        self.fc = nn.Linear(128 * block.expansion, num_classes)
         # self.mask = torch.nn.Parameter(torch.full((64,num_classes),0.5))
         if self.ifmask:
             self.lmask = LearnableMaskLayer(feature_dim=64, num_classes=num_classes)
@@ -219,11 +219,13 @@ class ResNet(nn.Module):
     def forward(self, x, labels, epoch):
         x = self.conv1(x)
         x = self.bn1(x)
-        x = self.relu(x)    # 32x32
+        x = self.relu(x)    # 64x64
 
-        x = self.layer1(x)  # 32x32
-        x = self.layer2(x)  # 16x16
-        x = self.layer3(x)  # 8x8
+        x = self.layer1(x)  # 64x64
+        x = self.layer2(x)  # 32x32
+        x = self.layer3(x)  # 16x16
+        x = self.layer4(x)  # 8x8
+
 
         if self.ifmask:
             x, reg = self.lmask(x, labels, epoch)
@@ -239,8 +241,39 @@ class ResNet(nn.Module):
         else:
             return x
 
-def resnet(**kwargs):
+def resnet18( **kwargs):
+    """Constructs a ResNet-18 model.
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(BasicBlock, [2, 2, 2, 2], **kwargs)
+    # if pretrained:
+    #     model.load_state_dict(model_zoo.load_url(model_urls['resnet18']))
+    return model
+
+def resnet34(**kwargs):
+    """Constructs a ResNet-34 model.
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(BasicBlock, [3, 4, 6, 3], **kwargs)
+    # if pretrained:
+    #     model.load_state_dict(model_zoo.load_url(model_urls['resnet34']))
+    return model
+
+def resnet(depth, **kwargs):
     """
     Constructs a ResNet model.
     """
-    return ResNet(**kwargs)
+    print ('resnet', depth)
+    if depth==18:
+        return resnet18(**kwargs)
+    elif depth == 34:
+        return resnet34(**kwargs)
+    else:
+        raise
+
+
+
