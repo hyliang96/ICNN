@@ -11,7 +11,7 @@ normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
 
 class VOCPart(data.Dataset):
     def __init__(self, root_dir, train=True, transform=None, requires=['img'], size=64):
-        assert size in [64, 128]
+        assert size in [32, 64, 128]
         assert set(requires) <= set(['img','obj_mask','part_mask'])
 
         self.train_transform = transforms.Compose([

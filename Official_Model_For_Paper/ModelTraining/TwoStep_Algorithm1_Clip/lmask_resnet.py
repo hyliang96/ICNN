@@ -1,19 +1,23 @@
-from __future__ import absolute_import
-
-'''Resnet for cifar dataset.
-Ported form
-https://github.com/facebook/fb.resnet.torch
-and
-https://github.com/pytorch/vision/blob/master/torchvision/models/resnet.py
-(c) YANG, Wei
-'''
 import torch.nn as nn
 import math
-import torch
-from torch.distributions import Bernoulli
-import torch.nn.functional as F
+import torch.utils.model_zoo as model_zoo
 
-__all__ = ['resnet']
+__all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
+           'resnet152', 'resnext50_32x4d', 'resnext101_32x8d',
+           'wide_resnet50_2', 'wide_resnet101_2']
+
+model_urls = {
+    'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth',
+    'resnet34': 'https://download.pytorch.org/models/resnet34-333f7ec4.pth',
+    'resnet50': 'https://download.pytorch.org/models/resnet50-19c8e357.pth',
+    'resnet101': 'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth',
+    'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth',
+    'resnext50_32x4d': 'https://download.pytorch.org/models/resnext50_32x4d-7cdf4587.pth',
+    'resnext101_32x8d': 'https://download.pytorch.org/models/resnext101_32x8d-8ba56ff5.pth',
+    'wide_resnet50_2': 'https://download.pytorch.org/models/wide_resnet50_2-95faca4d.pth',
+    'wide_resnet101_2': 'https://download.pytorch.org/models/wide_resnet101_2-32ee1156.pth',
+}
+
 
 def conv3x3(in_planes, out_planes, stride=1):
     "3x3 convolution with padding"
@@ -167,29 +171,25 @@ class LearnableMaskLayer(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, depth, num_classes=1000, ifmask=True):
+    def __init__(self, block, layers, num_classes=1000, fmask=True):
+        self.inplanes = 64
         super(ResNet, self).__init__()
         self.ifmask = ifmask
         print('self.ifmask=', self.ifmask)
-        # Model type specifies number of layers for CIFAR-10 model
-        assert (depth - 2) % 6 == 0, 'depth should be 6n+2'
-        n = (depth - 2) // 6
-
-        block = Bottleneck if depth >=44 else BasicBlock
-
-        self.inplanes = 16
-
-        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(16)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
-        self.layer1 = self._make_layer(block, 16, n)
-        self.layer2 = self._make_layer(block, 32, n, stride=2)
-        self.layer3 = self._make_layer(block, 64, n, stride=2)
-        self.avgpool = nn.AdaptiveAvgPool2d(1) #  nn.AvgPool2d(32)
-        self.fc = nn.Linear(64 * block.expansion, num_classes)
-        # self.mask = torch.nn.Parameter(torch.full((64,num_classes),0.5))
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.layer1 = self._make_layer(block, 64, layers[0])
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
+        self.avgpool = nn.AvgPool2d(2, stride=1)
+
+        self.fc = nn.Linear(512 * block.expansion, num_classes)
         if self.ifmask:
-            self.lmask = LearnableMaskLayer(feature_dim=64, num_classes=num_classes)
+            self.lmask = LearnableMaskLayer(feature_dim=512, num_classes=num_classes)
+
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -216,31 +216,97 @@ class ResNet(nn.Module):
 
         return nn.Sequential(*layers)
 
-    def forward(self, x, labels, epoch):
+    def forward(self, x):
         x = self.conv1(x)
         x = self.bn1(x)
-        x = self.relu(x)    # 32x32
+        x = self.relu(x)
+        x = self.maxpool(x)
 
-        x = self.layer1(x)  # 32x32
-        x = self.layer2(x)  # 16x16
-        x = self.layer3(x)  # 8x8
-
-        if self.ifmask:
-            x, reg = self.lmask(x, labels, epoch)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
 
         x = self.avgpool(x)
         x = x.view(x.size(0), -1)
         x = self.fc(x)
 
-        # print('l1_regularization, ', l1_regularization, 'l2_regularization', l2_regularization)
+        return x
 
-        if self.ifmask:
-            return x, reg
-        else:
-            return x
 
-def resnet(**kwargs):
+def resnet18(pretrained=False, **kwargs):
+    """Constructs a ResNet-18 model.
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
-    Constructs a ResNet model.
+    model = ResNet(BasicBlock, [2, 2, 2, 2], **kwargs)
+    if pretrained:
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet18']))
+    return model
+
+
+
+def resnet34(pretrained=False, **kwargs):
+    """Constructs a ResNet-34 model.
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
-    return ResNet(**kwargs)
+    model = ResNet(BasicBlock, [3, 4, 6, 3], **kwargs)
+    if pretrained:
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet34']))
+    return model
+
+
+
+def resnet50(pretrained=False, **kwargs):
+    """Constructs a ResNet-50 model.
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
+    if pretrained:
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet50']))
+    return model
+
+
+
+def resnet101(pretrained=False, **kwargs):
+    """Constructs a ResNet-101 model.
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
+    if pretrained:
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet101']))
+    return model
+
+
+
+def resnet152(pretrained=False, **kwargs):
+    """Constructs a ResNet-152 model.
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(Bottleneck, [3, 8, 36, 3], **kwargs)
+    if pretrained:
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet152']))
+    return model
+
+
+# def resnet34(pretrained=False, modelpath='./models',**kwargs):
+#     model = ResNet(BasicBlock, [3, 4, 6, 3], **kwargs)
+#     if pretrained:
+#         model.load_state_dict(model_zoo.load_url(model_urls['resnet34'], model_dir=modelpath))
+#     return model
+
+
+# def resnet101(pretrained=False, modelpath='./models', **kwargs):
+#     model = ResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
+#     if pretrained:
+#         model.load_state_dict(model_zoo.load_url(model_urls['resnet101'], model_dir=modelpath))
+#     return model
