@@ -30,12 +30,18 @@ parser.add_argument('--exp_dir',default='./',help='dir for tensorboard')
 parser.add_argument('--res', default='./result.txt', help="file to write best result")
 parser.add_argument('--ifmask', default='True', type=str, help="whether use learnable mask (i.e. gate matrix)")
 parser.add_argument('--optim', default='adam', type=str, help="optimizer: adam | agd")
-parser.add_argument('--lr', default=0.1, type=float, help="learning rate")
+parser.add_argument('--lr', default=0.1, type=float, help="learning rate for normal path")
+parser.add_argument('--lr_reg', default=1, type=float, help='lr of the loss of regularization path')
 parser.add_argument('--img_size', default=32, type=int, help="image size, input 32|64|128")
 parser.add_argument('--lambda_reg', default=1e-3, type=float, help='regularization coefficient')
+parser.add_argument('--frozen', default='True', type=str, help='freeze the lower layers')
+
 
 args = parser.parse_args()
-args.ifmask=True if args.ifmask=='True' else False
+args.ifmask=True if args.ifmask == 'True' else False
+args.frozen=True if args.frozen=='True' else False
+
+print(args)
 
 if os.path.exists(args.exp_dir):
     print ('Already exist and will continue training')
@@ -82,13 +88,17 @@ def train_model(model,criterion,optimizer,scheduler,num_epochs=25):
             else:
                 model.train(False)
 
+            ifmask = (epoch % 6 >=2 and args.ifmask and phase=='train')
+
             running_loss = 0.0
             running_corrects = 0.0
             top5_corrects = 0.0
 
             # change tensor to variable(including some gradient info)
             # use variable.data to get the corresponding tensor
-            for data in dataloaders[phase]:
+            for iteration, data in enumerate(dataloaders[phase]):
+                # ifmask = (iteration % 3 == 2 and args.ifmask and phase=='train')
+
                 #782 batch,batch size= 64
                 inputs,labels = data
                 # print (inputs.shape)
@@ -101,16 +111,16 @@ def train_model(model,criterion,optimizer,scheduler,num_epochs=25):
                 optimizer.zero_grad()
 
                 #forward
-                if args.ifmask:
-                    outputs, regulization_loss = model(inputs, labels, epoch)
+                if ifmask:
+                    outputs, regulization_loss = model(inputs, labels)
                     # print('outloss:',criterion(outputs, labels) * 0.7 , criterion(icnn_outputs, labels), regulization_loss)
                     loss = criterion(outputs, labels) + regulization_loss * args.lambda_reg
+                    # loss *= args.multipler
                 else:
                     # outputs = model(inputs)
-                    outputs = model(inputs, labels, epoch)
+                    outputs = model(inputs)
                     # print('outloss:',criterion(outputs, labels) * 0.7 , criterion(icnn_outputs, labels), regulization_loss)
                     loss = criterion(outputs, labels)
-                loss_0 = criterion(outputs, labels)
                 _, preds = torch.max(outputs.data, 1)
 
 
@@ -119,13 +129,16 @@ def train_model(model,criterion,optimizer,scheduler,num_epochs=25):
 
                 if phase == 'train':
                     loss.backward()
-                    optimizer.step()
+                    if ifmask:
+                        optimizer.step()
+                    else:
+                        optimizer_reg.step()
                     # limit mask to positive values
                     # model.module.mask.data = torch.clamp(model.module.mask, min=0.0)
                     # import ipdb;
                     # ipdb.set_trace()
                     # call clip function in model to normalize the lmask
-                    if args.ifmask:
+                    if ifmask:
                         model.module.lmask.clip_lmask()
 
                 y = labels.data
@@ -136,7 +149,10 @@ def train_model(model,criterion,optimizer,scheduler,num_epochs=25):
                 # top5_corrects += torch.sum(top5_preds == y.resize_(batch_size,1))
 
             if phase == 'train':
-                scheduler.step(loss)
+                if ifmask:
+                    scheduler.step(loss)
+                else:
+                    scheduler_reg.step(loss)
 
             epoch_loss = running_loss /dataset_sizes[phase]
             epoch_acc = float(running_corrects) /dataset_sizes[phase]
@@ -203,19 +219,35 @@ if __name__ == '__main__':
     # elif args.img_size == 32:
         # model = resnet_32x32(depth=args.depth, num_classes=num_classes, ifmask=args.ifmask)
     model = resnet_std(depth=args.depth, num_classes=num_classes, ifmask=args.ifmask, pretrained=True)
+    # frozeen lower layers
+    if args.frozen:
+        n_layer = len(list(model.children()))
+        print(n_layer)
+        for idx, layer in  enumerate( model.children() ):
+            print(idx, layer)
+            if idx < n_layer - 4 :
+                print('frozeen', idx)
+                for param in layer.parameters():
+                    param.requires_grad = False
+        train_params = list(filter(lambda p: p.requires_grad, model.parameters()))
+    else:
+        train_params = model.parameters()
 
     if args.optim == 'sgd':
-        optimizer = torch.optim.SGD(model.parameters(), lr=args.lr,
-                                momentum=0.9, nesterov=True, weight_decay=1e-4)
+        optimizer = torch.optim.SGD(train_params, lr=args.lr, momentum=0.9, nesterov=True, weight_decay=1e-4)
+        optimizer_reg = torch.optim.SGD(train_params, lr=args.lr_reg, momentum=0.9, nesterov=True, weight_decay=1e-4)
     elif args.optim == 'adam':
-        optimizer=torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.999),
-            eps=1e-08, weight_decay=0, amsgrad=False)
+        optimizer = torch.optim.Adam(train_params, lr=args.lr, betas=(0.9, 0.999), eps=1e-08, weight_decay=0, amsgrad=False)
+        optimizer_reg = torch.optim.Adam(train_params, lr=args.lr_reg, betas=(0.9, 0.999), eps=1e-08, weight_decay=0, amsgrad=False)
+
     else:
         raise
 
     # define loss and optimizer
     criterion = nn.CrossEntropyLoss()
     scheduler = MultiStepLR(optimizer, milestones=[args.epoch*0.4, args.epoch*0.6, args.epoch*0.8], gamma=0.1)
+    scheduler_reg = MultiStepLR(optimizer_reg, milestones=[args.epoch*0.4, args.epoch*0.6, args.epoch*0.8], gamma=0.1)
+
     # scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.8, patience=10, cooldown=10, verbose=True)
 
     use_gpu = torch.cuda.is_available()
