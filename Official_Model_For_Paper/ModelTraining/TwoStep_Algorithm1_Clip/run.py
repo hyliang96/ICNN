@@ -7,15 +7,15 @@ gpu_id = '0'
 batchsize = 32
 epoch = 300
 # exp_dir = '/data/ouyangzhihao/Exp/ICNN/LearnableMask/tb_dir/learnable_mask_baseline/Debug'
-optim = 'sgd'
-lr = '1'  # finetune resnet152: 1e-5
-lr_reg = '1'
+optim = 'adam'
+lr = '3e-4'  # finetune resnet152: 1e-5
+lr_reg = '3e-4'
 img_size = 128
 lambda_reg = '1e-3' # reg. coef.
 frozen = 'True'
 ifmask = 'True'
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 
 exp_dir_root = '/home/haoyu/mfs/project/CDCNN/ICNN_exp/VOCPart_train0.7_%d_pretrained/'%img_size
 
