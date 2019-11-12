@@ -152,7 +152,9 @@ def train_model(model,criterion,optimizer,scheduler,num_epochs=25):
                 tb_writer.add_scalar('val/total_loss_epoch', epoch_loss, epoch)
                 tb_writer.add_scalar('val/acc_epoch', epoch_acc, epoch)
                 if args.ifmask:
-                    tb_writer.add_scalar('val/mask_density', model.module.lmask.get_density(), epoch)
+                    mask_density = model.module.lmask.get_density()
+                    tb_writer.add_scalar('val/mask_density', mask_density, epoch)
+                    print('mask density %.4f' % mask_density)
 
             if phase == 'val' and epoch_acc > best_acc:
                 best_acc = epoch_acc
@@ -203,7 +205,7 @@ if __name__ == '__main__':
     model = resnet_std(depth=args.depth, num_classes=num_classes, ifmask=args.ifmask, pretrained=True)
 
     if args.optim == 'sgd':
-        optimizer = torch.optim.SGD(model.parameters(), lr=0.1,
+        optimizer = torch.optim.SGD(model.parameters(), lr=args.lr,
                                 momentum=0.9, nesterov=True, weight_decay=1e-4)
     elif args.optim == 'adam':
         optimizer=torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.999),
@@ -213,8 +215,8 @@ if __name__ == '__main__':
 
     # define loss and optimizer
     criterion = nn.CrossEntropyLoss()
-    # scheduler = MultiStepLR(optimizer, milestones=[args.epoch*0.4, args.epoch*0.6, args.epoch*0.8], gamma=0.1)
-    scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.8, patience=10, cooldown=10, verbose=True)
+    scheduler = MultiStepLR(optimizer, milestones=[args.epoch*0.4, args.epoch*0.6, args.epoch*0.8], gamma=0.1)
+    # scheduler = ReduceLROnPlateau(optimizer, 'min', factor=0.8, patience=10, cooldown=10, verbose=True)
 
     use_gpu = torch.cuda.is_available()
     if use_gpu:

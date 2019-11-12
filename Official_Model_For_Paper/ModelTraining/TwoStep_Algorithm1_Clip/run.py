@@ -8,10 +8,10 @@ batchsize = 32
 epoch = 300
 # exp_dir = '/data/ouyangzhihao/Exp/ICNN/LearnableMask/tb_dir/learnable_mask_baseline/Debug'
 ifmask = True
-optim = 'adam'
-lr = '3e-5' # finetune resnet152: 1e-5
+optim = 'sgd'
+lr = '3e-4' # finetune resnet152: 1e-5
 img_size = 128
-lambda_reg = '1e5' # reg. coef.
+lambda_reg = '1e-3' # reg. coef.
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
