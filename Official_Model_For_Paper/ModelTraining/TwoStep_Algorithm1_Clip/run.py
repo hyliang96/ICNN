@@ -8,8 +8,8 @@ batchsize = 32
 epoch = 300
 # exp_dir = '/data/ouyangzhihao/Exp/ICNN/LearnableMask/tb_dir/learnable_mask_baseline/Debug'
 optim = 'adam'
-lr = '3e-4'  # finetune resnet152: 1e-5
-lr_reg = '3e-4'
+lr = '1e-5'  # finetune resnet152: 1e-5
+lr_reg = '1e-3'
 img_size = 128
 lambda_reg = '1e-3' # reg. coef.
 frozen = 'True'
@@ -23,7 +23,7 @@ exp_dir_root = '/home/haoyu/mfs/project/CDCNN/ICNN_exp/VOCPart_train0.7_%d_pretr
 # os.system('rm -r ' + exp_dir)
 for data in datasets:
     for depth in depths:
-        exp_dir = exp_dir_root + '%sres%d_bs%d_%s_lr%s_lrreg%s_lmd%s_%s_6:2' % ('naive_' if not ifmask == 'True' else '', depth, batchsize, optim, lr, lr_reg, lambda_reg,
+        exp_dir = exp_dir_root + '%sres%d_bs%d_%s_lr%s_lrreg%s_lmd%s_%s_frz5:4_pre10-6:3' % ('naive_' if not ifmask == 'True' else '', depth, batchsize, optim, lr, lr_reg, lambda_reg,
            'frozen' if frozen == 'True' else ''
         )
         res = exp_dir + '/res.txt'

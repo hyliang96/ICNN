@@ -40,7 +40,6 @@ parser.add_argument('--frozen', default='True', type=str, help='freeze the lower
 args = parser.parse_args()
 args.ifmask=True if args.ifmask == 'True' else False
 args.frozen=True if args.frozen=='True' else False
-
 print(args)
 
 if os.path.exists(args.exp_dir):
@@ -88,7 +87,8 @@ def train_model(model,criterion,optimizer,scheduler,num_epochs=25):
             else:
                 model.train(False)
 
-            ifmask = (epoch % 6 >=2 and args.ifmask and phase=='train')
+            ifmask = (epoch % 3 >= 1 and epoch >= 10 and args.ifmask and phase == 'train')
+            print('ifmask =', ifmask)
 
             running_loss = 0.0
             running_corrects = 0.0
@@ -130,9 +130,9 @@ def train_model(model,criterion,optimizer,scheduler,num_epochs=25):
                 if phase == 'train':
                     loss.backward()
                     if ifmask:
-                        optimizer.step()
-                    else:
                         optimizer_reg.step()
+                    else:
+                        optimizer.step()
                     # limit mask to positive values
                     # model.module.mask.data = torch.clamp(model.module.mask, min=0.0)
                     # import ipdb;
@@ -150,9 +150,9 @@ def train_model(model,criterion,optimizer,scheduler,num_epochs=25):
 
             if phase == 'train':
                 if ifmask:
-                    scheduler.step(loss)
-                else:
                     scheduler_reg.step(loss)
+                else:
+                    scheduler.step(loss)
 
             epoch_loss = running_loss /dataset_sizes[phase]
             epoch_acc = float(running_corrects) /dataset_sizes[phase]
@@ -179,7 +179,7 @@ def train_model(model,criterion,optimizer,scheduler,num_epochs=25):
             print('Epoch time cost {:.0f}m {:.0f}s'.format(cost_time // 60, cost_time % 60))
         # Save model periotically
 
-        if (epoch % 1 == 0):
+        if (epoch % 5 == 0):
             checkpoint_path = os.path.join(args.exp_dir, 'unfinished_model_%d.pt' % epoch)
             lastest_checkpoint_path = os.path.join(args.exp_dir , 'unfinished_model_lastest.pt')
             torch.save({
@@ -218,27 +218,49 @@ if __name__ == '__main__':
         # model = resnet_64x64(depth=args.depth, num_classes=num_classes, ifmask=args.ifmask)
     # elif args.img_size == 32:
         # model = resnet_32x32(depth=args.depth, num_classes=num_classes, ifmask=args.ifmask)
+    print('args.ifmask =', args.ifmask)
     model = resnet_std(depth=args.depth, num_classes=num_classes, ifmask=args.ifmask, pretrained=True)
+    # model = resnet_std(depth=args.depth, num_classes=num_classes, ifmask=False, pretrained=True)
+
     # frozeen lower layers
     if args.frozen:
-        n_layer = len(list(model.children()))
-        print(n_layer)
-        for idx, layer in  enumerate( model.children() ):
-            print(idx, layer)
-            if idx < n_layer - 4 :
-                print('frozeen', idx)
-                for param in layer.parameters():
-                    param.requires_grad = False
-        train_params = list(filter(lambda p: p.requires_grad, model.parameters()))
+        def freeze(unfrozen_layer_num):
+            n_layer = len(list(model.children()))
+            # print(n_layer)
+            for idx, (layer_name, layer) in  enumerate( model.named_children() ):
+                print(idx, layer_name)
+                if idx < n_layer - unfrozen_layer_num : # 4
+                    # print('frozeen', idx)
+                    for name, param in layer.named_parameters():
+                        param.requires_grad = False
+                        # print(name)
+            # return list(filter(lambda p: p.requires_grad, model.parameters()))
+
+        def select_param(top_n_layer):
+            selected_param_names = []
+            n_layer = len(list(model.children()))
+            for idx, (layer_name, layer) in enumerate(model.named_children()):
+                if idx >= n_layer - top_n_layer:  # 4
+                    for param_name, param in layer.named_parameters():
+                        selected_param_names.append(layer_name + '.' + param_name)
+            return [param for name_param, param in model.named_parameters() if name_param in selected_param_names]
+
+        # for name, param in model.named_parameters():
+        #     print(name)
+
+        train_params = select_param(5)
+        train_params_reg = select_param(4)
+        freeze(5)
     else:
-        train_params = model.parameters()
+        train_params = list(model.parameters())
+        train_params_reg = list(model.parameters())
 
     if args.optim == 'sgd':
         optimizer = torch.optim.SGD(train_params, lr=args.lr, momentum=0.9, nesterov=True, weight_decay=1e-4)
-        optimizer_reg = torch.optim.SGD(train_params, lr=args.lr_reg, momentum=0.9, nesterov=True, weight_decay=1e-4)
+        optimizer_reg = torch.optim.SGD(train_params_reg, lr=args.lr_reg, momentum=0.9, nesterov=True, weight_decay=1e-4)
     elif args.optim == 'adam':
         optimizer = torch.optim.Adam(train_params, lr=args.lr, betas=(0.9, 0.999), eps=1e-08, weight_decay=0, amsgrad=False)
-        optimizer_reg = torch.optim.Adam(train_params, lr=args.lr_reg, betas=(0.9, 0.999), eps=1e-08, weight_decay=0, amsgrad=False)
+        optimizer_reg = torch.optim.Adam(train_params_reg, lr=args.lr_reg, betas=(0.9, 0.999), eps=1e-08, weight_decay=0, amsgrad=False)
 
     else:
         raise
