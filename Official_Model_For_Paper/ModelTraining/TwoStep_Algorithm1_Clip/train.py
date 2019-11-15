@@ -35,11 +35,14 @@ parser.add_argument('--lr_reg', default=1, type=float, help='lr of the loss of r
 parser.add_argument('--img_size', default=32, type=int, help="image size, input 32|64|128")
 parser.add_argument('--lambda_reg', default=1e-3, type=float, help='regularization coefficient')
 parser.add_argument('--frozen', default='True', type=str, help='freeze the lower layers')
+parser.add_argument('--train', default='True', type=str, help='train or test the model')
+
 
 
 args = parser.parse_args()
 args.ifmask=True if args.ifmask == 'True' else False
-args.frozen=True if args.frozen=='True' else False
+args.frozen=True if args.frozen == 'True' else False
+args.train=True if args.train=='True' else False
 print(args)
 
 if os.path.exists(args.exp_dir):
@@ -65,11 +68,14 @@ def train_model(model,criterion,optimizer,scheduler,num_epochs=25):
     best_acc = 0.0
     best_train_acc = 0.0
     # Load unfinished model
-    unfinished_model_path = os.path.join(args.exp_dir , 'unfinished_model_lastest.pt')
+    # unfinished_model_path = os.path.join(args.exp_dir , 'unfinished_model_lastest.pt')
+    unfinished_model_path = os.path.join(args.exp_dir , 'unfinished_model_150.pt')
+
     if(os.path.exists(unfinished_model_path)):
         checkpoint = torch.load(unfinished_model_path)
         model.load_state_dict(checkpoint['model_state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        if args.train:
+            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         epoch = checkpoint['epoch']+1
         loss = checkpoint['loss']
     else:
@@ -87,11 +93,13 @@ def train_model(model,criterion,optimizer,scheduler,num_epochs=25):
             else:
                 model.train(False)
 
-            ifmask = (epoch % 3 >= 1 and epoch >= 10 and args.ifmask and phase == 'train')
+            ifmask = (epoch % 3 >= 1 and epoch >= 0 and args.ifmask and phase == 'train')
             print('ifmask =', ifmask)
 
             running_loss = 0.0
+            running_loss_0 = 0.0
             running_corrects = 0.0
+            running_regulization_loss = 0.0
             top5_corrects = 0.0
 
             # change tensor to variable(including some gradient info)
@@ -114,7 +122,8 @@ def train_model(model,criterion,optimizer,scheduler,num_epochs=25):
                 if ifmask:
                     outputs, regulization_loss = model(inputs, labels)
                     # print('outloss:',criterion(outputs, labels) * 0.7 , criterion(icnn_outputs, labels), regulization_loss)
-                    loss = criterion(outputs, labels) + regulization_loss * args.lambda_reg
+                    loss_0 = criterion(outputs, labels)
+                    loss = loss_0 + regulization_loss * args.lambda_reg
                     # loss *= args.multipler
                 else:
                     # outputs = model(inputs)
@@ -127,7 +136,7 @@ def train_model(model,criterion,optimizer,scheduler,num_epochs=25):
                 # _,top5_preds = torch.topk(outputs.data,k=5,dim=1)
                 # print ('group loss:',group_loss[0])
 
-                if phase == 'train':
+                if phase == 'train' and  args.train:
                     loss.backward()
                     if ifmask:
                         optimizer_reg.step()
@@ -146,30 +155,46 @@ def train_model(model,criterion,optimizer,scheduler,num_epochs=25):
                 # print(y.resize_(batch_size,1))
                 running_loss += loss.item()
                 running_corrects += torch.sum(preds == y)
+                if ifmask:
+                    running_loss_0 += loss_0.item()
+                    running_regulization_loss += (regulization_loss * args.lambda_reg).item()
                 # top5_corrects += torch.sum(top5_preds == y.resize_(batch_size,1))
 
-            if phase == 'train':
+            if phase == 'train' and  args.train:
                 if ifmask:
                     scheduler_reg.step(loss)
                 else:
                     scheduler.step(loss)
 
             epoch_loss = running_loss /dataset_sizes[phase]
-            epoch_acc = float(running_corrects) /dataset_sizes[phase]
+            epoch_acc = float(running_corrects) / dataset_sizes[phase]
+            if ifmask:
+                epoch_loss_0 = running_loss_0 / dataset_sizes[phase]
+                epoch_regulization_loss = running_regulization_loss / dataset_sizes[phase]
             # top5_acc = top5_corrects /dataset_sizes[phase]
 
             print('%s Loss: %.4f top1 Acc:%.4f'%(phase,epoch_loss,epoch_acc))
             if phase == 'train':
-                tb_writer.add_scalar('train/total_loss_epoch', epoch_loss, epoch)
-                tb_writer.add_scalar('train/acc_epoch', epoch_acc, epoch)
+                if args.train:
+                    tb_writer.add_scalar('train/total_loss_epoch', epoch_loss, epoch)
+                    tb_writer.add_scalar('train/acc_epoch', epoch_acc, epoch)
                 if best_train_acc < epoch_acc:
                     best_train_acc = epoch_acc
+                if ifmask:
+                    print('epoch_loss_0', epoch_loss_0)
+                    print('epoch_regulization_loss =', epoch_regulization_loss)
+                    if args.train:
+                        tb_writer.add_scalar('train/epoch_loss_0', epoch_loss_0, epoch)
+                        tb_writer.add_scalar('train/regulization_loss', epoch_regulization_loss, epoch)
+
             if phase == 'val':
-                tb_writer.add_scalar('val/total_loss_epoch', epoch_loss, epoch)
-                tb_writer.add_scalar('val/acc_epoch', epoch_acc, epoch)
+                if args.train:
+                    tb_writer.add_scalar('val/total_loss_epoch', epoch_loss, epoch)
+                    tb_writer.add_scalar('val/acc_epoch', epoch_acc, epoch)
                 if args.ifmask:
                     mask_density = model.module.lmask.get_density()
-                    tb_writer.add_scalar('val/mask_density', mask_density, epoch)
+                    if args.train:
+                        tb_writer.add_scalar('val/mask_density', mask_density, epoch)
                     print('mask density %.4f' % mask_density)
 
             if phase == 'val' and epoch_acc > best_acc:
@@ -179,7 +204,10 @@ def train_model(model,criterion,optimizer,scheduler,num_epochs=25):
             print('Epoch time cost {:.0f}m {:.0f}s'.format(cost_time // 60, cost_time % 60))
         # Save model periotically
 
-        if (epoch % 5 == 0):
+        if not args.train:
+            break
+
+        if (epoch % 5 == 0) and  args.train:
             checkpoint_path = os.path.join(args.exp_dir, 'unfinished_model_%d.pt' % epoch)
             lastest_checkpoint_path = os.path.join(args.exp_dir , 'unfinished_model_lastest.pt')
             torch.save({
@@ -203,7 +231,10 @@ if __name__ == '__main__':
     print ('DataSets: '+args.dataset)
     print ('ResNet Depth: '+str(args.depth))
     loader = DataLoader(args.dataset,batch_size=args.batch_size)
-    dataloaders,dataset_sizes = loader.load_data(args.img_size)
+    dataloaders, dataset_sizes = loader.load_data(args.img_size)
+    if not args.train:
+        dataloaders['train'] = dataloaders['val']
+        dataset_sizes['train'] = dataset_sizes['val']
     num_classes = 10
     if args.dataset == 'cifar-10':
         num_classes = 10
@@ -287,12 +318,13 @@ if __name__ == '__main__':
                                             scheduler=scheduler,
                                             num_epochs=args.epoch)
 
-    exp_name = 'resnet%d dataset: %s batchsize: %d epoch: %d bestValAcc: %.4f bestTrainAcc: %.4f \n' % (
-    args.depth, args.dataset,args.batch_size, args.epoch,best_acc,best_train_acc)
+    if  args.train:
+        exp_name = 'resnet%d dataset: %s batchsize: %d epoch: %d bestValAcc: %.4f bestTrainAcc: %.4f \n' % (
+        args.depth, args.dataset,args.batch_size, args.epoch,best_acc,best_train_acc)
 
-    # os.system('rm ' + os.path.join(args.exp_dir , 'unfinished_model.pt') )
-    torch.save(model.state_dict(), os.path.join(args.exp_dir , 'saved_model.pt'))
-    with open(args.res,'a') as f:
-        f.write(exp_name)
-        f.close()
+        # os.system('rm ' + os.path.join(args.exp_dir , 'unfinished_model.pt') )
+        torch.save(model.state_dict(), os.path.join(args.exp_dir , 'saved_model.pt'))
+        with open(args.res,'a') as f:
+            f.write(exp_name)
+            f.close()
 
