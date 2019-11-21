@@ -69,13 +69,17 @@ def train_model(model,criterion,optimizer,scheduler,num_epochs=25):
     best_train_acc = 0.0
     # Load unfinished model
     # unfinished_model_path = os.path.join(args.exp_dir , 'unfinished_model_lastest.pt')
-    unfinished_model_path = os.path.join(args.exp_dir , 'unfinished_model_150.pt')
+    # unfinished_model_path = os.path.join(args.exp_dir , 'unfinished_model_150.pt')
+    # unfinished_model_path = '/home/haoyu/mfs/project/CDCNN/ICNN_exp/VOCPart_train0.7_128_pretrained/naive_res152_bs32_adam_lr1e-5_lrreg1e-3_lmd1e-3_frozen_3:2/unfinished_model_150.pt'
+    unfinished_model_path = '/home/haoyu/mfs/project/CDCNN/ICNN_exp/VOCPart_train0.7_128_pretrained/res152_bs32_adam_lr1e-5_lrreg3e-4_lmd1e-3_frozen_testscore3/unfinished_model_295.pt'
+
+
 
     if(os.path.exists(unfinished_model_path)):
         checkpoint = torch.load(unfinished_model_path)
-        model.load_state_dict(checkpoint['model_state_dict'])
-        if args.train:
-            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        model.load_state_dict(checkpoint['model_state_dict'],strict=False )
+        # if args.train:
+        #     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         epoch = checkpoint['epoch']+1
         loss = checkpoint['loss']
     else:
@@ -93,7 +97,9 @@ def train_model(model,criterion,optimizer,scheduler,num_epochs=25):
             else:
                 model.train(False)
 
-            ifmask = (epoch % 3 >= 1 and epoch >= 0 and args.ifmask and phase == 'train')
+            # ifmask = (epoch % 3 >= 1 and epoch >= 0 and args.ifmask and phase == 'train')
+            ifmask = (args.ifmask and phase == 'train')
+
             print('ifmask =', ifmask)
 
             running_loss = 0.0
@@ -261,7 +267,7 @@ if __name__ == '__main__':
             for idx, (layer_name, layer) in  enumerate( model.named_children() ):
                 print(idx, layer_name)
                 if idx < n_layer - unfrozen_layer_num : # 4
-                    # print('frozeen', idx)
+                    print('frozeen', idx, layer_name)
                     for name, param in layer.named_parameters():
                         param.requires_grad = False
                         # print(name)
@@ -274,14 +280,15 @@ if __name__ == '__main__':
                 if idx >= n_layer - top_n_layer:  # 4
                     for param_name, param in layer.named_parameters():
                         selected_param_names.append(layer_name + '.' + param_name)
+            print('selected', selected_param_names)
             return [param for name_param, param in model.named_parameters() if name_param in selected_param_names]
 
         # for name, param in model.named_parameters():
         #     print(name)
 
-        train_params = select_param(5)
-        train_params_reg = select_param(4)
-        freeze(5)
+        train_params = select_param(1)
+        train_params_reg = select_param(1)
+        freeze(1)
     else:
         train_params = list(model.parameters())
         train_params_reg = list(model.parameters())
