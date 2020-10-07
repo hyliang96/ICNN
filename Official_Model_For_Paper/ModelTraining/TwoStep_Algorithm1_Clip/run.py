@@ -13,7 +13,7 @@ lr_reg = '1e-3'
 img_size = 128
 lambda_reg = '1e-3' # reg. coef.
 frozen = 'True'
-ifmask = 'False'
+ifmask = 'True'
 train = 'True'
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "2"
@@ -27,8 +27,8 @@ for data in datasets:
         # exp_dir = exp_dir_root + '%sres%d_bs%d_%s_lr%s_lrreg%s_lmd%s_%s_frz5:4_pre0-6:3' % ('naive_' if not ifmask == 'True' else '', depth, batchsize, optim, lr, lr_reg, lambda_reg,
         #    'frozen' if frozen == 'True' else ''
         # )
-        model_name = 'naive_res152_bs32_adam_lr1e-5_lrreg1e-3_lmd1e-3_frozen_3:2'
-        # model_name = 'res152_bs32_adam_lr1e-5_lrreg1e-3_lmd1e-3_frozen_frz5:4_pre10-3:2'
+        # model_name = 'naive_res152_bs32_adam_lr1e-5_lrreg1e-3_lmd1e-3_frozen_3:2'
+        model_name = 'res152_bs32_adam_lr1e-5_lrreg1e-3_lmd1e-3_frozen_frz5:4_pre10-3:2'
         exp_dir = exp_dir_root+'/'+model_name
         res = exp_dir + '/res.txt'
         print('run ', exp_dir.split('/')[-1])
