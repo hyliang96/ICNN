@@ -14,11 +14,11 @@ img_size = 128
 lambda_reg = '1e-3' # reg. coef.
 frozen = 'True'
 ifmask = 'False'
-train = 'False'
+train = 'True'
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 
-exp_dir_root = '/home/haoyu/mfs/project/CDCNN/ICNN_exp/VOCPart_train0.7_%d_pretrained/'%img_size
+exp_dir_root = '/raid/haoyu/project_backup/CDCNN/ICNN_exp_eccv_reproduce/VOCPart_train0.7_%d_pretrained/'%img_size
 
 
 # os.system('rm -r ' + exp_dir)

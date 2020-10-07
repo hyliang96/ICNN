@@ -93,7 +93,7 @@ def train_model(model,criterion,optimizer,scheduler,num_epochs=25):
             else:
                 model.train(False)
 
-            ifmask = (epoch % 3 >= 1 and epoch >= 0 and args.ifmask and phase == 'train')
+            ifmask = (epoch % 3 >= 2 and epoch >= 0 and args.ifmask and phase == 'train')
             print('ifmask =', ifmask)
 
             running_loss = 0.0
