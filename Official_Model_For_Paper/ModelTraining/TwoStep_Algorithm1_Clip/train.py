@@ -216,7 +216,7 @@ def train_model(model,criterion,optimizer,scheduler,num_epochs=25):
                 'optimizer_state_dict': optimizer.state_dict(),
                 'loss': loss,
             }, checkpoint_path)
-            symlink_force(checkpoint_path, lastest_checkpoint_path)
+            symlink_force(os.path.basename(checkpoint_path), lastest_checkpoint_path)
         epoch += 1
 
     cost_time = time.time() - since

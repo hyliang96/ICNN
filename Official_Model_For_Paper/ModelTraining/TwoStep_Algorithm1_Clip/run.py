@@ -16,6 +16,8 @@ frozen = 'True'
 ifmask = 'True'
 train = 'True'
 
+run_id = 2
+
 os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 
 exp_dir_root = '/raid/haoyu/project_backup/CDCNN/ICNN_exp_eccv_reproduce/VOCPart_train0.7_%d_pretrained/'%img_size
@@ -24,14 +26,16 @@ exp_dir_root = '/raid/haoyu/project_backup/CDCNN/ICNN_exp_eccv_reproduce/VOCPart
 # os.system('rm -r ' + exp_dir)
 for data in datasets:
     for depth in depths:
-        # exp_dir = exp_dir_root + '%sres%d_bs%d_%s_lr%s_lrreg%s_lmd%s_%s_frz5:4_pre0-6:3' % ('naive_' if not ifmask == 'True' else '', depth, batchsize, optim, lr, lr_reg, lambda_reg,
-        #    'frozen' if frozen == 'True' else ''
-        # )
+        exp_dir = exp_dir_root + '/%sres%d_bs%d_%s_lr%s_lrreg%s_lmd%s_%s_frz5:4_pre10-3:2' % ('naive_' if not ifmask == 'True' else '', depth, batchsize, optim, lr, lr_reg, lambda_reg,
+           'frozen' if frozen == 'True' else ''
+        )+f'/run{run_id}'
+
         # model_name = 'naive_res152_bs32_adam_lr1e-5_lrreg1e-3_lmd1e-3_frozen_3:2'
-        model_name = 'res152_bs32_adam_lr1e-5_lrreg1e-3_lmd1e-3_frozen_frz5:4_pre10-3:2'
-        exp_dir = exp_dir_root+'/'+model_name
+        # model_name = 'res152_bs32_adam_lr1e-5_lrreg1e-3_lmd1e-3_frozen_frz5:4_pre10-3:2'
+        # exp_dir = exp_dir_root+'/'+model_name+f'/run{run_id}'
+
         res = exp_dir + '/res.txt'
-        print('run ', exp_dir.split('/')[-1])
+        print('run ', exp_dir.split('/')[-2:])
 
         # cmd = rlaunch + '-- python3 ./train.py --dataset %s --depth %d --res %s --gpu-ids %s --batch_size %d --epoch %d --exp_dir %s' \
         #                         %(data,depth,res,gpu_id,batchsize,epoch,exp_dir)
