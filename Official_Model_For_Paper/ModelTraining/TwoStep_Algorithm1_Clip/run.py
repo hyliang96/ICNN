@@ -14,11 +14,11 @@ img_size = 128
 lambda_reg = '1e-3' # reg. coef.
 frozen = 'True'
 ifmask = 'True'
-train = 'True'
+train = 'False'
 
-run_id = 2
+run_id = 5
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+os.environ["CUDA_VISIBLE_DEVICES"] = "4"
 
 exp_dir_root = '/raid/haoyu/project_backup/CDCNN/ICNN_exp_eccv_reproduce/VOCPart_train0.7_%d_pretrained/'%img_size
 
@@ -26,8 +26,9 @@ exp_dir_root = '/raid/haoyu/project_backup/CDCNN/ICNN_exp_eccv_reproduce/VOCPart
 # os.system('rm -r ' + exp_dir)
 for data in datasets:
     for depth in depths:
-        exp_dir = exp_dir_root + '/%sres%d_bs%d_%s_lr%s_lrreg%s_lmd%s_%s_frz5:4_pre10-3:2' % ('naive_' if not ifmask == 'True' else '', depth, batchsize, optim, lr, lr_reg, lambda_reg,
-           'frozen' if frozen == 'True' else ''
+        exp_dir = exp_dir_root + '/%sres%d_bs%d_%s_lr%s_lrreg%s_lmd%s_%s_%s3:2' % ('naive_' if not ifmask == 'True' else '', depth, batchsize, optim, lr, lr_reg, lambda_reg,
+           'frozen' if frozen == 'True' else '',
+           'frz5:4_pre10-' if frozen == 'True' and ifmask == 'True' else ''
         )+f'/run{run_id}'
 
         # model_name = 'naive_res152_bs32_adam_lr1e-5_lrreg1e-3_lmd1e-3_frozen_3:2'

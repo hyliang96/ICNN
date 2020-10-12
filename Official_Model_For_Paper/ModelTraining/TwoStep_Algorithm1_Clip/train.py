@@ -88,7 +88,7 @@ def train_model(model,criterion,optimizer,scheduler,num_epochs=25):
 
         #each epoch has a training and validation phase
         for phase in ['train','val']:
-            if phase == 'train':
+            if phase == 'train' and args.train:
                 model.train(True)
             else:
                 model.train(False)
@@ -232,9 +232,9 @@ if __name__ == '__main__':
     print ('ResNet Depth: '+str(args.depth))
     loader = DataLoader(args.dataset,batch_size=args.batch_size)
     dataloaders, dataset_sizes = loader.load_data(args.img_size)
-    if not args.train:
-        dataloaders['train'] = dataloaders['val']
-        dataset_sizes['train'] = dataset_sizes['val']
+    # if not args.train:
+    #     dataloaders['train'] = dataloaders['val']
+    #     dataset_sizes['train'] = dataset_sizes['val']
     num_classes = 10
     if args.dataset == 'cifar-10':
         num_classes = 10
