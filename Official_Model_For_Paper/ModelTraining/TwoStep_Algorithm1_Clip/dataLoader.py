@@ -2,6 +2,7 @@ import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 import torch
 from VOCPart import VOCPart
+import os
 
 class DataLoader():
     def __init__(self,dataset,batch_size):
@@ -63,8 +64,10 @@ class DataLoader():
                                        train=False,
                                        download=True)
         if self.dataset == 'VOCpart':
-            data_train = VOCPart('/home/haoyu/data/VOCPart', train=True ,requires=['img'], size=img_size)
-            data_test = VOCPart('/home/haoyu/data/VOCPart', train=False, requires=['img'], size=img_size)
+            here = os.path.dirname(os.path.realpath(__file__)) # get absoltae path to the dir this file is in
+            VOC_path = os.path.join(here,  '__data__')
+            data_train = VOCPart(VOC_path, train=True ,requires=['img'], size=img_size)
+            data_test = VOCPart(VOC_path, train=False, requires=['img'], size=img_size)
             # requires=['img','obj_mask', 'part_mask']
 
         image_datasets = {'train': data_train, 'val': data_test}
